@@ -67,11 +67,17 @@ pub mod client;
 pub mod error;
 pub mod request;
 pub mod response;
+pub mod stream;
+pub mod task;
 
 pub use client::{Client, ClientBuilder, DEFAULT_BASE_URL};
 pub use error::DashScopeError;
 pub use request::{
-    ApiEndpoint, Content, GenerationRequest, GenerationRequestBuilder, Input, MediaElement,
-    Message, Parameters, Role, VideoInput,
+    ApiEndpoint, Content, FunctionDef, GenerationRequest, GenerationRequestBuilder, Input,
+    MediaElement, Message, Parameters, Role, Tool, ToolChoice, VideoInput,
 };
-pub use response::{GenerationResponse, Output, Usage};
+pub use response::{GenerationResponse, Output, ToolCall, ToolCallFunction, Usage};
+pub use stream::StreamChunk;
+pub use task::{
+    TaskCancelResponse, TaskListItem, TaskListResponse, TaskOutput, TaskResponse, TaskStatus,
+};

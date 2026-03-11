@@ -37,6 +37,22 @@ pub enum ResponseContent {
     Multimodal(Vec<MediaElement>),
 }
 
+/// 工具调用(模型返回)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub function: ToolCallFunction,
+}
+
+/// 工具调用中的函数信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallFunction {
+    pub name: String,
+    pub arguments: String,
+}
+
 /// 响应中的消息对象
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseMessage {
@@ -45,6 +61,9 @@ pub struct ResponseMessage {
     /// 内容,纯文本或数组
     #[serde(default)]
     pub content: Option<ResponseContent>,
+    /// 工具调用列表(当 finish_reason 为 tool_calls 时)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 /// 单个生成选项

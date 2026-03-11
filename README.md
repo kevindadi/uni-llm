@@ -71,6 +71,7 @@ let request = GenerationRequest::builder()
 export DASHSCOPE_API_KEY=sk-xxx
 cargo run --example basic
 cargo run --example multimodal
+cargo run --example stream   # 流式输出
 ```
 
 ## 显式指定端点
@@ -112,6 +113,7 @@ let client = Client::with_base_url(
 
 ## 文档
 
+- [功能支持情况](docs/SUPPORT.md) - 文本/流式/图像/视频/音频/联网搜索/工具调用/异步/文档理解 的适配状态
 - [模型与端点对应关系](docs/MODELS.md) - 各模型应使用的 URL/端点说明
 - [DashScope API 参考](https://help.aliyun.com/zh/model-studio/qwen-api-via-dashscope)
 - [错误码说明](https://www.alibabacloud.com/help/zh/model-studio/error-code)

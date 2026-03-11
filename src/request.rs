@@ -163,6 +163,9 @@ pub struct Message {
     pub role: Role,
     /// 消息内容(纯文本或多模态)
     pub content: Content,
+    /// 工具调用 ID(仅 role 为 tool 时使用)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 impl Message {
@@ -171,6 +174,7 @@ impl Message {
         Self {
             role: Role::System,
             content: content.into(),
+            tool_call_id: None,
         }
     }
 
@@ -179,6 +183,7 @@ impl Message {
         Self {
             role: Role::User,
             content: content.into(),
+            tool_call_id: None,
         }
     }
 
@@ -187,6 +192,16 @@ impl Message {
         Self {
             role: Role::Assistant,
             content: content.into(),
+            tool_call_id: None,
+        }
+    }
+
+    /// 创建工具消息(用于多轮 Function Calling)
+    pub fn tool(content: impl Into<Content>, tool_call_id: impl Into<String>) -> Self {
+        Self {
+            role: Role::Tool,
+            content: content.into(),
+            tool_call_id: Some(tool_call_id.into()),
         }
     }
 }
@@ -207,6 +222,65 @@ impl From<Vec<MediaElement>> for Content {
     fn from(v: Vec<MediaElement>) -> Self {
         Content::Multimodal(v)
     }
+}
+
+/// 工具定义(用于 Function Calling)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tool {
+    /// 工具类型,当前仅支持 "function"
+    #[serde(rename = "type")]
+    pub type_: String, // "function"
+    /// 函数定义
+    pub function: FunctionDef,
+}
+
+impl Tool {
+    /// 创建函数工具
+    pub fn function(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            type_: "function".to_string(),
+            function: FunctionDef {
+                name: name.into(),
+                description: description.into(),
+                parameters: None,
+            },
+        }
+    }
+
+    /// 设置参数 JSON Schema
+    pub fn with_parameters(mut self, params: serde_json::Value) -> Self {
+        self.function.parameters = Some(params);
+        self
+    }
+}
+
+/// 函数定义
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionDef {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<serde_json::Value>,
+}
+
+/// 工具选择策略
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolChoice {
+    /// "auto" 或 "none"
+    String(String),
+    /// 强制调用指定工具
+    Object {
+        #[serde(rename = "type")]
+        type_: String,
+        function: ToolChoiceFunction,
+    },
+}
+
+/// 强制调用时的函数指定
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolChoiceFunction {
+    pub name: String,
 }
 
 /// 请求输入体
@@ -248,6 +322,30 @@ pub struct Parameters {
     /// 流式时是否增量输出
     #[serde(skip_serializing_if = "Option::is_none")]
     pub incremental_output: Option<bool>,
+
+    /// 是否开启联网搜索
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_search: Option<bool>,
+
+    /// 是否开启联网搜索领域增强
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_search_extension: Option<bool>,
+
+    /// 联网搜索策略,仅当 enable_search 为 true 时生效
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_strategy: Option<String>,
+
+    /// 工具定义列表(用于 Function Calling)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Tool>>,
+
+    /// 工具选择策略: "auto" | "none" | 强制指定
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+
+    /// 是否开启并行工具调用
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
 }
 
 /// API 端点类型
@@ -358,6 +456,54 @@ impl GenerationRequestBuilder {
         self.parameters
             .get_or_insert_with(Parameters::default)
             .stream = Some(stream);
+        self
+    }
+
+    /// 开启联网搜索
+    pub fn enable_search(mut self, enable: bool) -> Self {
+        self.parameters
+            .get_or_insert_with(Parameters::default)
+            .enable_search = Some(enable);
+        self
+    }
+
+    /// 开启联网搜索领域增强
+    pub fn enable_search_extension(mut self, enable: bool) -> Self {
+        self.parameters
+            .get_or_insert_with(Parameters::default)
+            .enable_search_extension = Some(enable);
+        self
+    }
+
+    /// 设置联网搜索策略
+    pub fn search_strategy(mut self, strategy: impl Into<String>) -> Self {
+        self.parameters
+            .get_or_insert_with(Parameters::default)
+            .search_strategy = Some(strategy.into());
+        self
+    }
+
+    /// 设置工具定义
+    pub fn tools(mut self, tools: Vec<Tool>) -> Self {
+        self.parameters
+            .get_or_insert_with(Parameters::default)
+            .tools = Some(tools);
+        self
+    }
+
+    /// 设置工具选择策略
+    pub fn tool_choice(mut self, choice: ToolChoice) -> Self {
+        self.parameters
+            .get_or_insert_with(Parameters::default)
+            .tool_choice = Some(choice);
+        self
+    }
+
+    /// 开启并行工具调用
+    pub fn parallel_tool_calls(mut self, enable: bool) -> Self {
+        self.parameters
+            .get_or_insert_with(Parameters::default)
+            .parallel_tool_calls = Some(enable);
         self
     }
 
