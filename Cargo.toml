@@ -1,0 +1,18 @@
+[package]
+name = "qwen-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "DashScope API Rust SDK for Qwen models"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/qwen-sdk-rust"
+keywords = ["dashscope", "qwen", "llm", "aliyun"]
+categories = ["api-bindings"]
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
