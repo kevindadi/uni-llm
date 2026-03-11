@@ -1,12 +1,12 @@
 //! DashScope API 响应结构定义
 //!
-//! 映射文档 chat 响应对象格式。
+//! 映射文档 chat 响应对象格式.
 
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::request::MediaElement;
 
-/// 解析 status_code：API 可能返回数字或字符串
+/// 解析 status_code:API 可能返回数字或字符串
 fn deserialize_status_code<'de, D>(deserializer: D) -> Result<Option<u16>, D::Error>
 where
     D: Deserializer<'de>,
@@ -27,22 +27,22 @@ where
 
 /// 响应中的消息内容
 ///
-/// 纯文本模型返回 String，VL/Audio 模型返回 Array。
+/// 纯文本模型返回 String,VL/Audio 模型返回 Array.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ResponseContent {
     /// 纯文本
     Text(String),
-    /// 多模态（VL/Audio 模型）
+    /// 多模态(VL/Audio 模型)
     Multimodal(Vec<MediaElement>),
 }
 
 /// 响应中的消息对象
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseMessage {
-    /// 角色，固定为 assistant
+    /// 角色,固定为 assistant
     pub role: String,
-    /// 内容，纯文本或数组
+    /// 内容,纯文本或数组
     #[serde(default)]
     pub content: Option<ResponseContent>,
 }
@@ -50,7 +50,7 @@ pub struct ResponseMessage {
 /// 单个生成选项
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Choice {
-    /// 结束原因：stop、length、tool_calls 等
+    /// 结束原因:stop、length、tool_calls 等
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
     /// 模型输出的消息
@@ -80,23 +80,23 @@ pub struct Usage {
     /// 输出 Token 数
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<u32>,
-    /// 总 Token 数（纯文本时）
+    /// 总 Token 数(纯文本时)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u32>,
 }
 
-/// 生成响应（原始 JSON 结构）
+/// 生成响应(原始 JSON 结构)
 ///
-/// 用于解析 API 返回的完整 JSON，包含 status_code、code、message 等。
+/// 用于解析 API 返回的完整 JSON,包含 status_code、code、message 等.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationResponseRaw {
-    /// 状态码，200 表示成功（API 可能返回数字或字符串）
+    /// 状态码,200 表示成功(API 可能返回数字或字符串)
     #[serde(default, deserialize_with = "deserialize_status_code")]
     pub status_code: Option<u16>,
     /// 请求 ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
-    /// 错误码，成功时为空
+    /// 错误码,成功时为空
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     /// 错误或提示信息
@@ -112,7 +112,7 @@ pub struct GenerationResponseRaw {
 
 /// 解析后的成功响应
 ///
-/// 仅包含业务成功时的有效数据。
+/// 仅包含业务成功时的有效数据.
 #[derive(Debug, Clone)]
 pub struct GenerationResponse {
     /// 请求 ID

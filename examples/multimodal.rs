@@ -1,15 +1,14 @@
-//! 多模态（图像理解）示例
+//! 多模态(图像理解)示例
 //!
-//! 使用 qwen-vl 或 qwen3-vl 系列模型进行图像理解。
-//! 运行前请设置环境变量 DASHSCOPE_API_KEY：
+//! 使用 qwen-vl 或 qwen3-vl 系列模型进行图像理解.
+//! 运行前请设置环境变量 DASHSCOPE_API_KEY:
 //! ```bash
 //! export DASHSCOPE_API_KEY=sk-xxx
 //! cargo run --example multimodal
 //! ```
 
 use qwen_sdk::{
-    Client, Content, DashScopeError, GenerationRequest, MediaElement, Message,
-    Parameters,
+    Client, Content, DashScopeError, GenerationRequest, MediaElement, Message, Parameters,
 };
 
 #[tokio::main]
@@ -32,9 +31,11 @@ async fn run() -> Result<String, DashScopeError> {
 
     let client = Client::new(api_key)?;
 
-    // 多模态消息：图像 + 文本
+    // 多模态消息:图像 + 文本
     let content = Content::multimodal(vec![
-        MediaElement::image("https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg"),
+        MediaElement::image(
+            "https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg",
+        ),
         MediaElement::text("图中描绘的是什么景象？"),
     ]);
 

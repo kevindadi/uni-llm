@@ -1,14 +1,14 @@
 //! # Qwen SDK for Rust
 //!
-//! DashScope (灵积) API 的 Rust 客户端，用于调用千问（Qwen）系列模型。
-//! 支持文本生成与多模态（图像、视频、音频）输入。
+//! DashScope API 的 Rust 客户端,用于调用千问(Qwen)系列模型.
+//! 支持文本生成与多模态(图像、视频、音频)输入.
 //!
 //! ## 特性
 //!
 //! - 类型安全的请求/响应结构
-//! - 显式错误枚举，便于精准定位问题
+//! - 显式错误枚举,便于精准定位问题
 //! - Builder 模式构建请求
-//! - 异步 API（基于 tokio）
+//! - 异步 API(基于 tokio)
 //!
 //! ## 示例
 //!
@@ -28,7 +28,7 @@
 //!         .model("qwen-plus")
 //!         .messages(vec![
 //!             Message::system("You are a helpful assistant."),
-//!             Message::user("你好，请介绍一下你自己"),
+//!             Message::user("你好,请介绍一下你自己"),
 //!         ])
 //!         .parameters(Parameters {
 //!             result_format: Some("message".into()),
@@ -48,7 +48,7 @@
 //!
 //! ## 错误处理
 //!
-//! 所有公共 API 返回 `Result<T, DashScopeError>`，调用者应显式处理：
+//! 所有公共 API 返回 `Result<T, DashScopeError>`,调用者应显式处理:
 //!
 //! ```rust,ignore
 //! match client.generate(request).await {
@@ -71,7 +71,7 @@ pub mod response;
 pub use client::{Client, ClientBuilder, DEFAULT_BASE_URL};
 pub use error::DashScopeError;
 pub use request::{
-    Content, GenerationRequest, GenerationRequestBuilder, Input, MediaElement, Message,
-    Parameters, Role, VideoInput,
+    ApiEndpoint, Content, GenerationRequest, GenerationRequestBuilder, Input, MediaElement,
+    Message, Parameters, Role, VideoInput,
 };
 pub use response::{GenerationResponse, Output, Usage};

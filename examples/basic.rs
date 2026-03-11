@@ -1,14 +1,12 @@
 //! 基础文本生成示例
 //!
-//! 运行前请设置环境变量 DASHSCOPE_API_KEY：
+//! 运行前请设置环境变量 DASHSCOPE_API_KEY:
 //! ```bash
 //! export DASHSCOPE_API_KEY=sk-xxx
 //! cargo run --example basic
 //! ```
 
-use qwen_sdk::{
-    Client, DashScopeError, GenerationRequest, Message, Parameters,
-};
+use qwen_sdk::{Client, DashScopeError, GenerationRequest, Message, Parameters};
 
 #[tokio::main]
 async fn main() {
@@ -21,7 +19,10 @@ async fn main() {
                     eprintln!("提示: 请设置环境变量 DASHSCOPE_API_KEY");
                     eprintln!("  export DASHSCOPE_API_KEY=sk-xxx");
                 }
-                DashScopeError::HttpError { status_code, message } => {
+                DashScopeError::HttpError {
+                    status_code,
+                    message,
+                } => {
                     eprintln!("HTTP {} 响应: {}", status_code, message);
                 }
                 DashScopeError::ApiResponseError { code, message } => {
@@ -34,7 +35,7 @@ async fn main() {
     }
 }
 
-/// 从环境变量获取 API Key，支持 DASHSCOPE_API_KEY 和 DASHSCope_API_KEY
+/// 从环境变量获取 API Key,支持 DASHSCOPE_API_KEY 和 DASHSCope_API_KEY
 fn get_api_key() -> Result<String, DashScopeError> {
     std::env::var("DASHSCOPE_API_KEY")
         .or_else(|_| std::env::var("DASHSCope_API_KEY"))
@@ -54,7 +55,7 @@ async fn run() -> Result<String, DashScopeError> {
         .model("qwen-plus")
         .messages(vec![
             Message::system("You are a helpful assistant."),
-            Message::user("你好，请用一句话介绍你自己"),
+            Message::user("你好,请用一句话介绍你自己"),
         ])
         .parameters(Parameters {
             result_format: Some("message".into()),

@@ -1,12 +1,12 @@
 //! DashScope API 请求结构定义
 //!
-//! 严格映射官方文档的 JSON Schema，支持文本生成与多模态输入。
+//! 严格映射官方文档的 JSON Schema,支持文本生成与多模态输入.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::DashScopeError;
 
-/// 视频输入：支持单个 URL 或 URL 列表
+/// 视频输入:支持单个 URL 或 URL 列表
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum VideoInput {
@@ -18,7 +18,7 @@ pub enum VideoInput {
 
 /// 多模态消息中的媒体元素
 ///
-/// 支持 image、video、audio、text 等类型，对应文档中的 content 数组元素。
+/// 支持 image、video、audio、text 等类型,对应文档中的 content 数组元素.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaElement {
     /// 图像 URL、Base64 或本地路径
@@ -29,7 +29,7 @@ pub struct MediaElement {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video: Option<VideoInput>,
 
-    /// 每秒抽帧数，与 video 配合使用
+    /// 每秒抽帧数,与 video 配合使用
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fps: Option<f32>,
 
@@ -65,7 +65,7 @@ impl MediaElement {
         }
     }
 
-    /// 创建视频元素（URL 列表 + 可选 fps）
+    /// 创建视频元素(URL 列表 + 可选 fps)
     pub fn video(urls: impl Into<VideoInput>, fps: Option<f32>) -> Self {
         Self {
             image: None,
@@ -88,15 +88,15 @@ impl MediaElement {
     }
 }
 
-/// 消息内容：纯文本或多模态
+/// 消息内容:纯文本或多模态
 ///
-/// 文档规定：纯文本模式下 content 为 String，
-/// 多模态（VL/Video/Audio）模式下为 Array&lt;Object&gt;。
+/// 文档规定:纯文本模式下 content 为 String,
+/// 多模态(VL/Video/Audio)模式下为 Array&lt;Object&gt;.
 #[derive(Debug, Clone)]
 pub enum Content {
     /// 纯文本内容
     Text(String),
-    /// 多模态内容（图像、视频、音频、文本混合）
+    /// 多模态内容(图像、视频、音频、文本混合)
     Multimodal(Vec<MediaElement>),
 }
 
@@ -161,7 +161,7 @@ pub enum Role {
 pub struct Message {
     /// 消息角色
     pub role: Role,
-    /// 消息内容（纯文本或多模态）
+    /// 消息内容(纯文本或多模态)
     pub content: Content,
 }
 
@@ -218,10 +218,10 @@ pub struct Input {
 
 /// 生成参数
 ///
-/// 映射文档 parameters 对象中的核心参数。
+/// 映射文档 parameters 对象中的核心参数.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Parameters {
-    /// 采样温度，控制生成多样性
+    /// 采样温度,控制生成多样性
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
 
@@ -233,7 +233,7 @@ pub struct Parameters {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
 
-    /// 返回格式，推荐 "message"
+    /// 返回格式,推荐 "message"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_format: Option<String>,
 
@@ -250,18 +250,36 @@ pub struct Parameters {
     pub incremental_output: Option<bool>,
 }
 
+/// API 端点类型
+///
+/// 用于显式指定调用哪个端点,覆盖基于模型名的自动选择.
+/// - `TextGeneration`: 纯文本模型(qwen-plus、qwen-turbo 等)
+/// - `MultimodalGeneration`: 多模态模型(qwen-vl、qwen3.5-plus 等)
+///
+/// 若用多模态端点调用 qwen-plus,或反之,API 通常会返回 `InvalidParameter` 等错误.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiEndpoint {
+    /// 文本生成:`/services/aigc/text-generation/generation`
+    TextGeneration,
+    /// 多模态生成:`/services/aigc/multimodal-generation/generation`
+    MultimodalGeneration,
+}
+
 /// 文本生成请求体
 ///
-/// 对应文档顶层请求结构：model、input、parameters。
+/// 对应文档顶层请求结构:model、input、parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationRequest {
-    /// 模型名称（必选）
+    /// 模型名称(必选)
     pub model: String,
-    /// 输入内容（必选）
+    /// 输入内容(必选)
     pub input: Input,
-    /// 生成参数（可选）
+    /// 生成参数(可选)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<Parameters>,
+    /// 显式指定端点,不参与 JSON 序列化.为 None 时根据 model 自动选择
+    #[serde(skip)]
+    pub endpoint: Option<ApiEndpoint>,
 }
 
 /// GenerationRequest 的 Builder
@@ -270,6 +288,7 @@ pub struct GenerationRequestBuilder {
     model: Option<String>,
     messages: Option<Vec<Message>>,
     parameters: Option<Parameters>,
+    endpoint: Option<ApiEndpoint>,
 }
 
 impl GenerationRequestBuilder {
@@ -330,9 +349,7 @@ impl GenerationRequestBuilder {
 
     /// 设置 stop 词
     pub fn stop(mut self, stop: Vec<String>) -> Self {
-        self.parameters
-            .get_or_insert_with(Parameters::default)
-            .stop = Some(stop);
+        self.parameters.get_or_insert_with(Parameters::default).stop = Some(stop);
         self
     }
 
@@ -341,6 +358,14 @@ impl GenerationRequestBuilder {
         self.parameters
             .get_or_insert_with(Parameters::default)
             .stream = Some(stream);
+        self
+    }
+
+    /// 显式指定 API 端点,覆盖基于模型名的自动选择
+    ///
+    /// 例如:用多模态端点调用 qwen-plus 通常会失败；反之亦然.
+    pub fn endpoint(mut self, endpoint: ApiEndpoint) -> Self {
+        self.endpoint = Some(endpoint);
         self
     }
 
@@ -357,6 +382,7 @@ impl GenerationRequestBuilder {
             model,
             input: Input { messages },
             parameters: self.parameters,
+            endpoint: self.endpoint,
         })
     }
 }
