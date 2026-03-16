@@ -1,94 +1,116 @@
-//! DashScope API 错误类型定义
-//!
-//! 提供显式错误枚举,让调用者在编译时知晓可能发生的错误,
-//! 并能打印出具体的调试信息(如 API 返回的错误码).
+//! 错误类型定义。
 
-use std::fmt;
+use std::path::PathBuf;
+use std::time::Duration;
+use thiserror::Error;
 
-/// DashScope API 错误枚举
-///
-/// 涵盖配置错误、HTTP 错误、序列化错误和业务逻辑错误,
-/// 便于开发者精准定位问题.
-#[derive(Debug)]
-pub enum DashScopeError {
-    /// API Key 为空或未设置
-    InvalidConfiguration(String),
+/// LLM 调用相关错误。
+#[derive(Error, Debug)]
+pub enum LlmError {
+    // —— 网络层 ——
+    #[error("连接失败: url={url}, source={source}")]
+    ConnectionFailed {
+        url: String,
+        #[source]
+        source: reqwest::Error,
+    },
 
-    /// HTTP 请求构建失败(如 URL 解析错误)
-    RequestBuildError(reqwest::Error),
+    #[error("请求超时: elapsed={elapsed:?}, limit={limit:?}")]
+    Timeout {
+        elapsed: Duration,
+        limit: Duration,
+    },
 
-    /// 服务器返回了非 200 状态码
-    ///
-    /// 包含 HTTP 状态码和响应 Body 文本,
-    /// DashScope 在错误时会在 Body 中返回具体错误码(如 InvalidApiToken).
-    HttpError { status_code: u16, message: String },
-
-    /// 请求序列化失败或响应反序列化失败
-    SerializationError(serde_json::Error),
-
-    /// HTTP 请求成功(200),但业务逻辑失败
-    ///
-    /// 当 API 返回的 JSON 中 `status_code` 不为 200 或存在 `code` 字段时触发.
-    /// 提取 `code` 和 `message` 字段,便于判断是模型名错误还是 Token 超限等.
-    ApiResponseError {
-        code: Option<String>,
+    // —— API 层 ——
+    #[error("认证失败: provider={provider}, message={message}")]
+    AuthenticationFailed {
+        provider: String,
         message: String,
     },
 
-    /// 服务器返回了完全不符合预期的结构(例如缺少 `output` 字段)
-    UnexpectedResponse(String),
+    #[error("请求频率受限: provider={provider}, retry_after={retry_after:?}")]
+    RateLimited {
+        provider: String,
+        retry_after: Option<Duration>,
+    },
+
+    #[error("配额已用尽: provider={provider}, message={message}")]
+    QuotaExceeded {
+        provider: String,
+        message: String,
+    },
+
+    #[error("模型不存在: provider={provider}, model={model}")]
+    ModelNotFound {
+        provider: String,
+        model: String,
+    },
+
+    #[error("无效请求: provider={provider}, status={status}, body={body}")]
+    InvalidRequest {
+        provider: String,
+        status: u16,
+        body: String,
+    },
+
+    #[error("服务端错误: provider={provider}, status={status}, body={body}")]
+    ServerError {
+        provider: String,
+        status: u16,
+        body: String,
+    },
+
+    // —— 解析层 ——
+    #[error("响应解析失败: raw={raw}, source={source}")]
+    ResponseParseFailed {
+        raw: String,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("JSON 输出解析失败: raw={raw}, target_type={target_type}, source={source}")]
+    JsonOutputParseFailed {
+        raw: String,
+        target_type: String,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("流式输出中断: chunks_received={chunks_received}, source={source}")]
+    StreamInterrupted {
+        chunks_received: usize,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    // —— 配置层 ——
+    #[error("配置加载失败: path={path}, source={source}")]
+    ConfigLoadFailed {
+        path: PathBuf,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[error("API Key 缺失: provider={provider}, env_var={env_var}")]
+    ApiKeyMissing {
+        provider: String,
+        env_var: String,
+    },
+
+    // —— Fallback ——
+    #[error("所有 provider 均失败: errors={0:?}")]
+    AllProvidersFailed(Vec<(String, Box<LlmError>)>),
 }
 
-impl fmt::Display for DashScopeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DashScopeError::InvalidConfiguration(msg) => {
-                write!(f, "Invalid configuration: {}", msg)
-            }
-            DashScopeError::RequestBuildError(e) => {
-                write!(f, "Request build failed: {}", e)
-            }
-            DashScopeError::HttpError {
-                status_code,
-                message,
-            } => {
-                write!(f, "HTTP error (status {}): {}", status_code, message)
-            }
-            DashScopeError::SerializationError(e) => {
-                write!(f, "Serialization error: {}", e)
-            }
-            DashScopeError::ApiResponseError { code, message } => {
-                if let Some(c) = code {
-                    write!(f, "API error (code {}): {}", c, message)
-                } else {
-                    write!(f, "API error: {}", message)
-                }
-            }
-            DashScopeError::UnexpectedResponse(msg) => {
-                write!(f, "Unexpected response: {}", msg)
-            }
-        }
-    }
-}
-
-impl std::error::Error for DashScopeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            DashScopeError::RequestBuildError(e) => Some(e),
-            DashScopeError::SerializationError(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<reqwest::Error> for DashScopeError {
-    fn from(err: reqwest::Error) -> Self {
-        DashScopeError::RequestBuildError(err)
-    }
-}
-
-impl From<serde_json::Error> for DashScopeError {
-    fn from(err: serde_json::Error) -> Self {
-        DashScopeError::SerializationError(err)
+impl LlmError {
+    /// 是否为可重试错误。
+    pub fn is_retriable(&self) -> bool {
+        matches!(
+            self,
+            LlmError::RateLimited { .. }
+                | LlmError::ServerError { .. }
+                | LlmError::ConnectionFailed { .. }
+                | LlmError::Timeout { .. }
+        )
     }
 }

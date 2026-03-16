@@ -1,402 +1,360 @@
-//! DashScope API 客户端实现
+//! UniLlmClient 统一客户端实现。
 
-use crate::error::DashScopeError;
-use crate::request::{ApiEndpoint, GenerationRequest};
-use crate::response::{GenerationResponse, GenerationResponseRaw};
-use crate::stream::{parse_sse_stream, StreamChunk};
-use crate::task::{TaskCancelResponse, TaskListResponse, TaskResponse};
-use reqwest::Client as HttpClient;
+use std::sync::Arc;
 use std::time::Duration;
 
-/// 默认 Base URL(北京地域)
-pub const DEFAULT_BASE_URL: &str = "https://dashscope.aliyuncs.com/api/v1";
+use tracing::{info, warn};
 
-/// 文本生成端点
-const TEXT_GENERATION_PATH: &str = "services/aigc/text-generation/generation";
+use crate::config::Config;
+use crate::error::LlmError;
+use crate::providers::{create_provider, LlmProvider};
+use crate::types::{ChatRequest, ChatResponse, Message, StreamChunk, ToolDefinition};
 
-/// 多模态生成端点
-const MULTIMODAL_GENERATION_PATH: &str = "services/aigc/multimodal-generation/generation";
-
-/// 判断是否为多模态模型(需使用 multimodal-generation 端点)
-fn is_multimodal_model(model: &str) -> bool {
-    let m = model.to_lowercase();
-    m.contains("vl") || m.contains("vision") || m.contains("qwen3.5")
+/// 统一 LLM 客户端。
+pub struct UniLlmClient {
+    config: Arc<Config>,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+    temperature_override: Option<f32>,
+    max_tokens_override: Option<u32>,
+    timeout_override: Option<Duration>,
 }
 
-/// DashScope API 客户端
-#[derive(Debug, Clone)]
-pub struct Client {
-    api_key: String,
-    base_url: String,
-    http_client: HttpClient,
-}
-
-impl Client {
-    /// 使用 API Key 创建客户端(北京地域)
-    ///
-    /// # Errors
-    ///
-    /// 当 API Key 为空时返回 `InvalidConfiguration`
-    pub fn new(api_key: impl Into<String>) -> Result<Self, DashScopeError> {
-        let api_key = api_key.into();
-        if api_key.trim().is_empty() {
-            return Err(DashScopeError::InvalidConfiguration(
-                "API Key is missing. Please set it in the environment or client.".into(),
-            ));
-        }
-        let http_client = HttpClient::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .map_err(DashScopeError::RequestBuildError)?;
+impl UniLlmClient {
+    /// 从配置文件加载客户端。
+    pub async fn from_config(path: impl AsRef<std::path::Path>) -> Result<Self, LlmError> {
+        let config = Config::from_file(path).await?;
         Ok(Self {
-            api_key,
-            base_url: DEFAULT_BASE_URL.to_string(),
-            http_client,
+            config: Arc::new(config),
+            provider_override: None,
+            model_override: None,
+            temperature_override: None,
+            max_tokens_override: None,
+            timeout_override: None,
         })
     }
 
-    /// 使用自定义 Base URL 创建客户端(支持新加坡、美国等地域)
-    pub fn with_base_url(
-        api_key: impl Into<String>,
-        base_url: impl Into<String>,
-    ) -> Result<Self, DashScopeError> {
-        let mut client = Self::new(api_key)?;
-        client.base_url = base_url.into();
-        Ok(client)
+    /// 创建 builder。
+    pub fn builder() -> UniLlmClientBuilder {
+        UniLlmClientBuilder::default()
     }
 
-    /// 创建 Builder
-    pub fn builder() -> ClientBuilder {
-        ClientBuilder::default()
+    /// 临时切换 provider。
+    pub fn with_provider(&self, provider: &str) -> Self {
+        Self {
+            config: Arc::clone(&self.config),
+            provider_override: Some(provider.to_string()),
+            model_override: self.model_override.clone(),
+            temperature_override: self.temperature_override,
+            max_tokens_override: self.max_tokens_override,
+            timeout_override: self.timeout_override,
+        }
     }
 
-    /// 调用模型生成文本
-    ///
-    /// 根据模型名称自动选择 text-generation 或 multimodal-generation 端点.
-    ///
-    /// # Errors
-    ///
-    /// 可能返回 `HttpError`、`ApiResponseError`、`SerializationError`、`UnexpectedResponse`
-    pub async fn generate(
+    /// 临时切换模型。
+    pub fn with_model(&self, model: &str) -> Self {
+        Self {
+            config: Arc::clone(&self.config),
+            provider_override: self.provider_override.clone(),
+            model_override: Some(model.to_string()),
+            temperature_override: self.temperature_override,
+            max_tokens_override: self.max_tokens_override,
+            timeout_override: self.timeout_override,
+        }
+    }
+
+    fn provider_name(&self) -> &str {
+        self.provider_override
+            .as_deref()
+            .unwrap_or(&self.config.default.provider)
+    }
+
+    fn model(&self) -> &str {
+        self.model_override
+            .as_deref()
+            .unwrap_or(&self.config.default.model)
+    }
+
+    fn temperature(&self) -> f32 {
+        self.temperature_override
+            .unwrap_or(self.config.default.temperature)
+    }
+
+    fn max_tokens(&self) -> u32 {
+        self.max_tokens_override
+            .unwrap_or(self.config.default.max_tokens)
+    }
+
+    fn timeout(&self) -> Duration {
+        self.timeout_override
+            .unwrap_or_else(|| self.config.timeout())
+    }
+
+    fn build_request(
         &self,
-        request: GenerationRequest,
-    ) -> Result<GenerationResponse, DashScopeError> {
-        let path = match request.endpoint {
-            Some(ApiEndpoint::TextGeneration) => TEXT_GENERATION_PATH,
-            Some(ApiEndpoint::MultimodalGeneration) => MULTIMODAL_GENERATION_PATH,
-            None => {
-                if is_multimodal_model(&request.model) {
-                    MULTIMODAL_GENERATION_PATH
-                } else {
-                    TEXT_GENERATION_PATH
+        messages: Vec<Message>,
+        tools: Option<Vec<ToolDefinition>>,
+        json_mode: bool,
+    ) -> ChatRequest {
+        ChatRequest {
+            messages,
+            model: self.model_override.clone(),
+            temperature: Some(self.temperature()),
+            max_tokens: Some(self.max_tokens()),
+            tools,
+            json_mode,
+        }
+    }
+
+    async fn do_chat_with_provider(
+        &self,
+        provider: &dyn LlmProvider,
+        request: &ChatRequest,
+    ) -> Result<ChatResponse, LlmError> {
+        let model = self.model();
+        let timeout = self.timeout();
+
+        let mut last_error = None;
+        let max_retries = self.config.default.max_retries;
+        let retry_delay_ms = self.config.default.retry_delay_ms;
+
+        for attempt in 0..=max_retries {
+            if attempt > 0 {
+                let delay_ms = retry_delay_ms * 2u64.pow(attempt - 1);
+                let jitter = rand::random::<u64>() % 500;
+                let total_ms = (delay_ms + jitter).min(60_000);
+                tracing::info!(
+                    provider = %provider.provider_name(),
+                    model = %model,
+                    attempt = attempt,
+                    delay_ms = total_ms,
+                    "retrying after error"
+                );
+                tokio::time::sleep(Duration::from_millis(total_ms)).await;
+            }
+
+            match provider.chat(request, model, timeout).await {
+                Ok(resp) => {
+                    info!(
+                        provider = %resp.provider,
+                        model = %resp.model,
+                        latency = ?resp.latency,
+                        prompt_tokens = resp.usage.prompt_tokens,
+                        completion_tokens = resp.usage.completion_tokens,
+                        "chat completed"
+                    );
+                    return Ok(resp);
+                }
+                Err(e) => {
+                    if !e.is_retriable() {
+                        return Err(e);
+                    }
+                    last_error = Some(e);
                 }
             }
-        };
-        let url = format!("{}/{}", self.base_url.trim_end_matches('/'), path);
-
-        let body = serde_json::to_string(&request).map_err(DashScopeError::SerializationError)?;
-
-        let resp = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .body(body)
-            .send()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        let status = resp.status();
-        let status_code = status.as_u16();
-        let body_text = resp
-            .text()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        if !status.is_success() {
-            return Err(DashScopeError::HttpError {
-                status_code,
-                message: body_text,
-            });
         }
 
-        let raw: GenerationResponseRaw =
-            serde_json::from_str(&body_text).map_err(DashScopeError::SerializationError)?;
+        Err(last_error.unwrap_or_else(|| LlmError::ServerError {
+            provider: provider.provider_name().to_string(),
+            status: 500,
+            body: "unknown".to_string(),
+        }))
+    }
 
-        // 仅当明确返回错误时判定失败:status_code 存在且非 200,或 code 非空
-        let is_error = raw.status_code.map(|c| c != 200).unwrap_or(false)
-            || raw.code.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+    /// 普通 chat 调用。
+    pub async fn chat(&self, messages: Vec<Message>) -> Result<ChatResponse, LlmError> {
+        let request = self.build_request(messages, None, false);
+        self.chat_with_fallback(&request).await
+    }
 
-        if is_error {
-            let message = raw.message.filter(|m| !m.is_empty()).unwrap_or_else(|| {
-                format!(
-                    "API 返回异常.原始响应: {}",
-                    &body_text[..body_text.len().min(500)]
-                )
-            });
-            return Err(DashScopeError::ApiResponseError {
-                code: raw.code,
-                message,
-            });
+    /// 带 tool 的 chat 调用。
+    pub async fn chat_with_tools(
+        &self,
+        messages: Vec<Message>,
+        tools: &[ToolDefinition],
+    ) -> Result<ChatResponse, LlmError> {
+        let request = self.build_request(messages, Some(tools.to_vec()), false);
+        self.chat_with_fallback(&request).await
+    }
+
+    /// JSON 结构化输出。
+    pub async fn chat_json<T: serde::de::DeserializeOwned>(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<T, LlmError> {
+        let mut request = self.build_request(messages, None, true);
+
+        let provider = create_provider(&self.config, self.provider_name())?;
+        if !provider.supports_json_mode() {
+            let json_prompt = "你必须只输出合法 JSON，不要输出任何其他文字。输出格式：\n{...}";
+            if let Some(first) = request.messages.first_mut() {
+                if matches!(first.role, crate::types::Role::System) {
+                    first.content = format!("{}\n\n{}", json_prompt, first.content);
+                } else {
+                    request.messages.insert(0, Message::system(json_prompt));
+                }
+            } else {
+                request.messages.insert(0, Message::system(json_prompt));
+            }
+            request.json_mode = false;
         }
 
-        let output = raw.output.ok_or_else(|| {
-            DashScopeError::UnexpectedResponse("response missing 'output' field".into())
-        })?;
-
-        Ok(GenerationResponse {
-            request_id: raw.request_id,
-            output,
-            usage: raw.usage,
+        let response = self.chat_with_fallback(&request).await?;
+        serde_json::from_str(&response.content).map_err(|e| LlmError::JsonOutputParseFailed {
+            raw: response.content,
+            target_type: std::any::type_name::<T>().to_string(),
+            source: e,
         })
     }
 
-    /// 流式调用模型生成文本
-    ///
-    /// 自动设置 stream=true、incremental_output=true 及 X-DashScope-SSE 请求头.
-    /// 返回 SSE 解析后的 StreamChunk 流.
-    pub async fn generate_stream(
+    /// 流式 chat
+    pub async fn chat_stream(
         &self,
-        mut request: GenerationRequest,
+        messages: Vec<Message>,
     ) -> Result<
-        impl futures_util::Stream<Item = Result<StreamChunk, DashScopeError>> + Send,
-        DashScopeError,
+        std::pin::Pin<Box<dyn futures::Stream<Item = Result<StreamChunk, LlmError>> + Send>>,
+        LlmError,
     > {
-        let path = match request.endpoint {
-            Some(ApiEndpoint::TextGeneration) => TEXT_GENERATION_PATH,
-            Some(ApiEndpoint::MultimodalGeneration) => MULTIMODAL_GENERATION_PATH,
-            None => {
-                if is_multimodal_model(&request.model) {
-                    MULTIMODAL_GENERATION_PATH
-                } else {
-                    TEXT_GENERATION_PATH
-                }
-            }
-        };
-        let url = format!("{}/{}", self.base_url.trim_end_matches('/'), path);
-
-        request
-            .parameters
-            .get_or_insert_with(Default::default)
-            .stream = Some(true);
-        request
-            .parameters
-            .get_or_insert_with(Default::default)
-            .incremental_output = Some(true);
-
-        let body = serde_json::to_string(&request).map_err(DashScopeError::SerializationError)?;
-
-        let resp = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .header("X-DashScope-SSE", "enable")
-            .body(body)
-            .send()
+        let request = self.build_request(messages, None, false);
+        let provider = create_provider(&self.config, self.provider_name())?;
+        provider
+            .chat_stream(&request, self.model(), self.timeout())
             .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let status_code = status.as_u16();
-            let message = resp
-                .text()
-                .await
-                .map_err(DashScopeError::RequestBuildError)?;
-            return Err(DashScopeError::HttpError {
-                status_code,
-                message,
-            });
-        }
-
-        Ok(parse_sse_stream(resp))
     }
 
-    /// 查询单个异步任务
-    pub async fn get_task(&self, task_id: &str) -> Result<TaskResponse, DashScopeError> {
-        let url = format!("{}/tasks/{}", self.base_url.trim_end_matches('/'), task_id);
-        let resp = self
-            .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
+    async fn chat_with_fallback(&self, request: &ChatRequest) -> Result<ChatResponse, LlmError> {
+        let provider = create_provider(&self.config, self.provider_name())?;
 
-        let status = resp.status();
-        let body_text = resp
-            .text()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        if !status.is_success() {
-            return Err(DashScopeError::HttpError {
-                status_code: status.as_u16(),
-                message: body_text,
-            });
+        match self.do_chat_with_provider(provider.as_ref(), request).await {
+            Ok(resp) => Ok(resp),
+            Err(e) => {
+                if let Some(ref fallback) = self.config.fallback {
+                    let mut errors = vec![(self.provider_name().to_string(), e)];
+                    for entry in &fallback.chain {
+                        let fb_client =
+                            self.with_provider(&entry.provider).with_model(&entry.model);
+                        let fb_provider = create_provider(&self.config, &entry.provider)?;
+                        let mut fb_request = request.clone();
+                        fb_request.model = Some(entry.model.clone());
+                        match fb_client
+                            .do_chat_with_provider(fb_provider.as_ref(), &fb_request)
+                            .await
+                        {
+                            Ok(resp) => {
+                                warn!(
+                                    from = self.provider_name(),
+                                    to = %entry.provider,
+                                    "fallback succeeded"
+                                );
+                                return Ok(resp);
+                            }
+                            Err(err) => {
+                                errors.push((entry.provider.clone(), err));
+                            }
+                        }
+                    }
+                    Err(LlmError::AllProvidersFailed(
+                        errors.into_iter().map(|(p, e)| (p, Box::new(e))).collect(),
+                    ))
+                } else {
+                    Err(e)
+                }
+            }
         }
+    }
+}
 
-        let raw: serde_json::Value =
-            serde_json::from_str(&body_text).map_err(DashScopeError::SerializationError)?;
+/// 客户端构建器。
+#[derive(Default)]
+pub struct UniLlmClientBuilder {
+    config: Option<Config>,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    timeout_secs: Option<u64>,
+}
 
-        let output = raw
-            .get("output")
-            .ok_or_else(|| DashScopeError::UnexpectedResponse("response missing 'output'".into()))?;
-        let output: crate::task::TaskOutput =
-            serde_json::from_value(output.clone()).map_err(DashScopeError::SerializationError)?;
+impl UniLlmClientBuilder {
+    pub fn provider(mut self, provider: &str) -> Self {
+        self.provider = Some(provider.to_string());
+        self
+    }
 
-        Ok(TaskResponse {
-            request_id: raw.get("request_id").and_then(|v| v.as_str()).map(String::from),
-            output,
-            usage: raw.get("usage").cloned(),
+    pub fn model(mut self, model: &str) -> Self {
+        self.model = Some(model.to_string());
+        self
+    }
+
+    pub fn temperature(mut self, t: f32) -> Self {
+        self.temperature = Some(t);
+        self
+    }
+
+    pub fn max_tokens(mut self, n: u32) -> Self {
+        self.max_tokens = Some(n);
+        self
+    }
+
+    pub fn timeout(mut self, d: Duration) -> Self {
+        self.timeout_secs = Some(d.as_secs());
+        self
+    }
+
+    pub fn build(self) -> Result<UniLlmClient, LlmError> {
+        let config = self.config.unwrap_or_else(|| {
+            let default_toml = r#"
+[default]
+provider = "openai"
+model = "gpt-4o"
+temperature = 0.0
+max_tokens = 4096
+timeout_secs = 60
+max_retries = 3
+retry_delay_ms = 1000
+
+[providers.openai]
+api_key_env = "OPENAI_API_KEY"
+base_url = "https://api.openai.com/v1"
+models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
+"#;
+            let mut c = Config::parse(default_toml).unwrap_or_else(|_| Config {
+                default: crate::config::DefaultConfig::default(),
+                providers: std::collections::HashMap::new(),
+                fallback: None,
+                logging: crate::config::LoggingConfig::default(),
+            });
+            if let Some(p) = self.provider {
+                c.default.provider = p;
+            }
+            if let Some(m) = self.model {
+                c.default.model = m;
+            }
+            if let Some(t) = self.temperature {
+                c.default.temperature = t;
+            }
+            if let Some(n) = self.max_tokens {
+                c.default.max_tokens = n;
+            }
+            if let Some(secs) = self.timeout_secs {
+                c.default.timeout_secs = secs;
+            }
+            c
+        });
+
+        Ok(UniLlmClient {
+            config: Arc::new(config),
+            provider_override: None,
+            model_override: None,
+            temperature_override: None,
+            max_tokens_override: None,
+            timeout_override: None,
         })
     }
 
-    /// 批量查询异步任务
-    #[allow(clippy::too_many_arguments)]
-    pub async fn list_tasks(
-        &self,
-        task_id: Option<&str>,
-        start_time: Option<&str>,
-        end_time: Option<&str>,
-        status: Option<&str>,
-        model_name: Option<&str>,
-        page_no: Option<u32>,
-        page_size: Option<u32>,
-    ) -> Result<TaskListResponse, DashScopeError> {
-        let url = format!("{}/tasks/", self.base_url.trim_end_matches('/'));
-
-        let page_no_str = page_no.map(|p| p.to_string());
-        let page_size_str = page_size.map(|p| p.to_string());
-
-        let mut query_params: Vec<(&str, &str)> = Vec::new();
-        if let Some(id) = task_id {
-            query_params.push(("task_id", id));
-        }
-        if let Some(s) = start_time {
-            query_params.push(("start_time", s));
-        }
-        if let Some(e) = end_time {
-            query_params.push(("end_time", e));
-        }
-        if let Some(s) = status {
-            query_params.push(("status", s));
-        }
-        if let Some(m) = model_name {
-            query_params.push(("model_name", m));
-        }
-        if let Some(ref p) = page_no_str {
-            query_params.push(("page_no", p));
-        }
-        if let Some(ref p) = page_size_str {
-            query_params.push(("page_size", p));
-        }
-
-        let mut req = self
-            .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key));
-        if !query_params.is_empty() {
-            req = req.query(&query_params);
-        }
-
-        let resp = req
-            .send()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        let status = resp.status();
-        let body_text = resp
-            .text()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        if !status.is_success() {
-            return Err(DashScopeError::HttpError {
-                status_code: status.as_u16(),
-                message: body_text,
-            });
-        }
-
-        let raw: TaskListResponse =
-            serde_json::from_str(&body_text).map_err(DashScopeError::SerializationError)?;
-
-        if raw.code.as_ref().map(|c| !c.is_empty()).unwrap_or(false) {
-            return Err(DashScopeError::ApiResponseError {
-                code: raw.code,
-                message: raw.message.unwrap_or_else(|| "Unknown API error".into()),
-            });
-        }
-
-        Ok(raw)
-    }
-
-    /// 取消异步任务(仅 PENDING 状态可取消)
-    pub async fn cancel_task(&self, task_id: &str) -> Result<TaskCancelResponse, DashScopeError> {
-        let url = format!(
-            "{}/tasks/{}/cancel",
-            self.base_url.trim_end_matches('/'),
-            task_id
-        );
-
-        let resp = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        let status = resp.status();
-        let body_text = resp
-            .text()
-            .await
-            .map_err(DashScopeError::RequestBuildError)?;
-
-        if !status.is_success() {
-            return Err(DashScopeError::HttpError {
-                status_code: status.as_u16(),
-                message: body_text,
-            });
-        }
-
-        let raw: TaskCancelResponse =
-            serde_json::from_str(&body_text).map_err(DashScopeError::SerializationError)?;
-
-        Ok(raw)
-    }
-}
-
-/// Client Builder
-#[derive(Debug, Default)]
-pub struct ClientBuilder {
-    api_key: Option<String>,
-    base_url: Option<String>,
-}
-
-impl ClientBuilder {
-    /// 设置 API Key
-    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
-        self.api_key = Some(api_key.into());
+    /// 从已有 config 构建，允许覆盖。
+    pub fn from_config(mut self, config: Config) -> Self {
+        self.config = Some(config);
         self
-    }
-
-    /// 设置 Base URL
-    pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.base_url = Some(base_url.into());
-        self
-    }
-
-    /// 构建客户端
-    pub fn build(self) -> Result<Client, DashScopeError> {
-        let api_key = self
-            .api_key
-            .ok_or_else(|| DashScopeError::InvalidConfiguration("api_key is required".into()))?;
-
-        match self.base_url {
-            Some(base_url) => Client::with_base_url(api_key, base_url),
-            None => Client::new(api_key),
-        }
     }
 }
