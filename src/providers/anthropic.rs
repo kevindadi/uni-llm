@@ -1,4 +1,4 @@
-//! Anthropic Claude Messages API 实现。
+//! Anthropic Claude Messages API 实现.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use crate::config::ProviderConfig;
 use crate::error::LlmError;
 use crate::types::{ChatRequest, ChatResponse, StreamChunk};
 
-/// Anthropic Claude Provider。
+/// Anthropic Claude Provider.
 pub struct AnthropicProvider {
     name: String,
     base_url: String,
@@ -20,7 +20,7 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    /// 创建 Anthropic Provider。
+    /// 创建 Anthropic Provider.
     pub fn new(config: &ProviderConfig) -> Result<Self, LlmError> {
         let api_key = config
             .api_key_env
@@ -34,12 +34,13 @@ impl AnthropicProvider {
                     .unwrap_or_else(|| "ANTHROPIC_API_KEY".to_string()),
             })?;
 
-        let client = reqwest::Client::builder()
-            .build()
-            .map_err(|e| LlmError::ConnectionFailed {
-                url: config.base_url.clone(),
-                source: e,
-            })?;
+        let client =
+            reqwest::Client::builder()
+                .build()
+                .map_err(|e| LlmError::ConnectionFailed {
+                    url: config.base_url.clone(),
+                    source: e,
+                })?;
 
         Ok(Self {
             name: "anthropic".to_string(),
@@ -58,18 +59,19 @@ impl LlmProvider for AnthropicProvider {
         model: &str,
         timeout: Duration,
     ) -> Result<ChatResponse, LlmError> {
-        // 提取 system 消息到顶级，转换其余消息
-        let (system, messages): (Option<String>, Vec<_>) = request
-            .messages
-            .iter()
-            .fold((None, vec![]), |(mut sys, mut msgs), m| {
-                if matches!(m.role, crate::types::Role::System) {
-                    sys = Some(m.content.clone());
-                } else {
-                    msgs.push(m.clone());
-                }
-                (sys, msgs)
-            });
+        // 提取 system 消息到顶级,转换其余消息
+        let (system, messages): (Option<String>, Vec<_>) =
+            request
+                .messages
+                .iter()
+                .fold((None, vec![]), |(mut sys, mut msgs), m| {
+                    if matches!(m.role, crate::types::Role::System) {
+                        sys = Some(m.content.clone());
+                    } else {
+                        msgs.push(m.clone());
+                    }
+                    (sys, msgs)
+                });
 
         // 合并连续的 Tool 消息为 user content 中的 tool_result 数组
         let mut anthropic_messages: Vec<serde_json::Value> = Vec::new();
@@ -114,7 +116,8 @@ impl LlmProvider for AnthropicProvider {
                         "content": m.content
                     })];
                     i += 1;
-                    while i < messages.len() && matches!(messages[i].role, crate::types::Role::Tool) {
+                    while i < messages.len() && matches!(messages[i].role, crate::types::Role::Tool)
+                    {
                         let tm = &messages[i];
                         tool_results.push(serde_json::json!({
                             "type": "tool_result",
@@ -212,12 +215,11 @@ impl LlmProvider for AnthropicProvider {
             });
         }
 
-        let v: serde_json::Value = serde_json::from_str(&body_str).map_err(|e| {
-            LlmError::ResponseParseFailed {
+        let v: serde_json::Value =
+            serde_json::from_str(&body_str).map_err(|e| LlmError::ResponseParseFailed {
                 raw: body_str.clone(),
                 source: e,
-            }
-        })?;
+            })?;
 
         let content = v["content"]
             .as_array()
@@ -245,12 +247,15 @@ impl LlmProvider for AnthropicProvider {
             })
             .and_then(|v| if v.is_empty() { None } else { Some(v) });
 
-        let usage = v["usage"].as_object().map(|u| crate::types::TokenUsage {
-            prompt_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32,
-            completion_tokens: u["output_tokens"].as_u64().unwrap_or(0) as u32,
-            total_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32
-                + u["output_tokens"].as_u64().unwrap_or(0) as u32,
-        }).unwrap_or_default();
+        let usage = v["usage"]
+            .as_object()
+            .map(|u| crate::types::TokenUsage {
+                prompt_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32,
+                completion_tokens: u["output_tokens"].as_u64().unwrap_or(0) as u32,
+                total_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32
+                    + u["output_tokens"].as_u64().unwrap_or(0) as u32,
+            })
+            .unwrap_or_default();
 
         Ok(ChatResponse {
             content,
@@ -267,11 +272,8 @@ impl LlmProvider for AnthropicProvider {
         _request: &ChatRequest,
         _model: &str,
         _timeout: Duration,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<StreamChunk, LlmError>> + Send>>,
-        LlmError,
-    > {
-        // Anthropic SSE 格式不同，简化实现：返回空流
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LlmError>> + Send>>, LlmError> {
+        // Anthropic SSE 格式不同,简化实现:返回空流
         let stream = futures::stream::iter(vec![Ok(StreamChunk {
             delta: String::new(),
             tool_calls_delta: None,

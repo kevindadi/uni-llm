@@ -1,4 +1,4 @@
-//! 基础 chat 调用示例。
+//! 基础 chat 调用示例.
 
 use uni_llm::{Message, UniLlmClient};
 
@@ -8,8 +8,8 @@ async fn main() -> anyhow::Result<()> {
 
     let response = client
         .chat(vec![
-            Message::system("你是一个并发系统设计专家。"),
-            Message::user("请简要介绍什么是并发执行。"),
+            Message::system("你是一个并发系统设计专家."),
+            Message::user("请简要介绍什么是并发执行."),
         ])
         .await?;
 

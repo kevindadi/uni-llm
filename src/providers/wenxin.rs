@@ -1,4 +1,4 @@
-//! 百度文心一言千帆 API 实现。
+//! 百度文心一言千帆 API 实现.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -10,13 +10,13 @@ use crate::config::ProviderConfig;
 use crate::error::LlmError;
 use crate::types::{ChatRequest, ChatResponse, Role, StreamChunk};
 
-/// 缓存的 access_token。
+/// 缓存的 access_token.
 struct TokenCache {
     token: Option<String>,
     expires_at: Option<std::time::Instant>,
 }
 
-/// 百度文心 Provider。
+/// 百度文心 Provider.
 pub struct WenxinProvider {
     name: String,
     base_url: String,
@@ -27,7 +27,7 @@ pub struct WenxinProvider {
 }
 
 impl WenxinProvider {
-    /// 创建文心 Provider。
+    /// 创建文心 Provider.
     pub fn new(config: &ProviderConfig) -> Result<Self, LlmError> {
         let api_key = config
             .api_key_env

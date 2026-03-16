@@ -1,4 +1,4 @@
-//! OpenAI 及兼容模型实现（DeepSeek、DashScope、GLM、Ollama）。
+//! OpenAI 及兼容模型实现(DeepSeek、DashScope、GLM、Ollama).
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -15,7 +15,7 @@ use crate::config::ProviderConfig;
 use crate::error::LlmError;
 use crate::types::{ChatRequest, ChatResponse, Message, Role, StreamChunk, TokenUsage, ToolCall};
 
-/// OpenAI 兼容 Provider。
+/// OpenAI 兼容 Provider.
 pub struct OpenAiCompatibleProvider {
     name: String,
     base_url: String,
@@ -24,11 +24,12 @@ pub struct OpenAiCompatibleProvider {
 }
 
 impl OpenAiCompatibleProvider {
-    /// 创建 OpenAI 兼容 Provider。
+    /// 创建 OpenAI 兼容 Provider.
     pub fn new(name: &str, config: &ProviderConfig) -> Result<Self, LlmError> {
-        let api_key = config.api_key_env.as_ref().and_then(|env_var| {
-            std::env::var(env_var).ok()
-        });
+        let api_key = config
+            .api_key_env
+            .as_ref()
+            .and_then(|env_var| std::env::var(env_var).ok());
 
         // Ollama 不需要 API key
         if name != "ollama" && api_key.is_none() {
@@ -41,12 +42,13 @@ impl OpenAiCompatibleProvider {
             });
         }
 
-        let client = reqwest::Client::builder()
-            .build()
-            .map_err(|e| LlmError::ConnectionFailed {
-                url: config.base_url.clone(),
-                source: e,
-            })?;
+        let client =
+            reqwest::Client::builder()
+                .build()
+                .map_err(|e| LlmError::ConnectionFailed {
+                    url: config.base_url.clone(),
+                    source: e,
+                })?;
 
         Ok(Self {
             name: name.to_string(),
@@ -56,11 +58,7 @@ impl OpenAiCompatibleProvider {
         })
     }
 
-    fn build_request_body(
-        &self,
-        request: &ChatRequest,
-        model: &str,
-    ) -> Result<Value, LlmError> {
+    fn build_request_body(&self, request: &ChatRequest, model: &str) -> Result<Value, LlmError> {
         let messages: Vec<Value> = request
             .messages
             .iter()
@@ -149,16 +147,15 @@ impl OpenAiCompatibleProvider {
                 source: parse_err(),
             })?;
 
-        let choice = choices.first().ok_or_else(|| LlmError::ResponseParseFailed {
-            raw: body.to_string(),
-            source: parse_err(),
-        })?;
+        let choice = choices
+            .first()
+            .ok_or_else(|| LlmError::ResponseParseFailed {
+                raw: body.to_string(),
+                source: parse_err(),
+            })?;
 
         let message = &choice["message"];
-        let content = message["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let content = message["content"].as_str().unwrap_or("").to_string();
 
         let tool_calls = message["tool_calls"]
             .as_array()
@@ -169,7 +166,8 @@ impl OpenAiCompatibleProvider {
                         let func = &tc["function"];
                         let name = func["name"].as_str()?.to_string();
                         let args_str = func["arguments"].as_str().unwrap_or("{}");
-                        let arguments = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                        let arguments =
+                            serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
                         Some(ToolCall {
                             id,
                             function_name: name,
@@ -180,11 +178,14 @@ impl OpenAiCompatibleProvider {
             })
             .filter(|v: &Vec<ToolCall>| !v.is_empty());
 
-        let usage = v["usage"].as_object().map(|u| TokenUsage {
-            prompt_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,
-            completion_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
-            total_tokens: u["total_tokens"].as_u64().unwrap_or(0) as u32,
-        }).unwrap_or_default();
+        let usage = v["usage"]
+            .as_object()
+            .map(|u| TokenUsage {
+                prompt_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,
+                completion_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
+                total_tokens: u["total_tokens"].as_u64().unwrap_or(0) as u32,
+            })
+            .unwrap_or_default();
 
         let model = v["model"].as_str().unwrap_or("unknown").to_string();
 
@@ -238,11 +239,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         let url = format!("{}/chat/completions", self.base_url);
         let body = self.build_request_body(request, model)?;
 
-        let mut req = self
-            .client
-            .post(&url)
-            .json(&body)
-            .timeout(timeout);
+        let mut req = self.client.post(&url).json(&body).timeout(timeout);
 
         if let Some(ref key) = self.api_key {
             req = req.bearer_auth(key);
@@ -278,19 +275,12 @@ impl LlmProvider for OpenAiCompatibleProvider {
         request: &ChatRequest,
         model: &str,
         timeout: Duration,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<StreamChunk, LlmError>> + Send>>,
-        LlmError,
-    > {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LlmError>> + Send>>, LlmError> {
         let url = format!("{}/chat/completions", self.base_url);
         let mut body = self.build_request_body(request, model)?;
         body["stream"] = serde_json::json!(true);
 
-        let mut req = self
-            .client
-            .post(&url)
-            .json(&body)
-            .timeout(timeout);
+        let mut req = self.client.post(&url).json(&body).timeout(timeout);
 
         if let Some(ref key) = self.api_key {
             req = req.bearer_auth(key);
@@ -306,55 +296,53 @@ impl LlmProvider for OpenAiCompatibleProvider {
             .bytes_stream()
             .eventsource();
 
-        let stream = stream.filter_map(|event| {
-            async move {
-                let ev = match event {
-                    Ok(ev) => ev,
-                    Err(e) => {
-                        return Some(Err(LlmError::StreamInterrupted {
-                            chunks_received: 0,
-                            source: Box::new(e),
-                        }))
-                    }
-                };
-                let data = ev.data;
-                if data == "[DONE]" {
-                    return Some(Ok(StreamChunk {
-                        delta: String::new(),
-                        tool_calls_delta: None,
-                        is_final: true,
-                        usage: None,
-                    }));
+        let stream = stream.filter_map(|event| async move {
+            let ev = match event {
+                Ok(ev) => ev,
+                Err(e) => {
+                    return Some(Err(LlmError::StreamInterrupted {
+                        chunks_received: 0,
+                        source: Box::new(e),
+                    }))
                 }
-                match serde_json::from_str::<Value>(&data) {
-                    Ok(v) => {
-                        let choices = v["choices"].as_array();
-                        let choice = choices.and_then(|a| a.first());
-                        let (content, is_final) = match choice {
-                            Some(c) => {
-                                let delta = &c["delta"];
-                                let content = delta["content"].as_str().unwrap_or("").to_string();
-                                let finish = c["finish_reason"].as_str();
-                                let is_final = finish.is_some() && !finish.unwrap_or("").is_empty();
-                                (content, is_final)
-                            }
-                            None => (String::new(), false),
-                        };
-                        if content.is_empty() && !is_final {
-                            return None;
+            };
+            let data = ev.data;
+            if data == "[DONE]" {
+                return Some(Ok(StreamChunk {
+                    delta: String::new(),
+                    tool_calls_delta: None,
+                    is_final: true,
+                    usage: None,
+                }));
+            }
+            match serde_json::from_str::<Value>(&data) {
+                Ok(v) => {
+                    let choices = v["choices"].as_array();
+                    let choice = choices.and_then(|a| a.first());
+                    let (content, is_final) = match choice {
+                        Some(c) => {
+                            let delta = &c["delta"];
+                            let content = delta["content"].as_str().unwrap_or("").to_string();
+                            let finish = c["finish_reason"].as_str();
+                            let is_final = finish.is_some() && !finish.unwrap_or("").is_empty();
+                            (content, is_final)
                         }
-                        Some(Ok(StreamChunk {
-                            delta: content,
-                            tool_calls_delta: None,
-                            is_final,
-                            usage: None,
-                        }))
+                        None => (String::new(), false),
+                    };
+                    if content.is_empty() && !is_final {
+                        return None;
                     }
-                    Err(e) => Some(Err(LlmError::ResponseParseFailed {
-                        raw: data,
-                        source: e,
-                    })),
+                    Some(Ok(StreamChunk {
+                        delta: content,
+                        tool_calls_delta: None,
+                        is_final,
+                        usage: None,
+                    }))
                 }
+                Err(e) => Some(Err(LlmError::ResponseParseFailed {
+                    raw: data,
+                    source: e,
+                })),
             }
         });
 

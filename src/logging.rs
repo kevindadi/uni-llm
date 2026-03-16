@@ -1,4 +1,4 @@
-//! tracing 日志初始化。
+//! tracing 日志初始化.
 
 use std::io;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -8,10 +8,10 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::config::LoggingConfig;
 
-/// 初始化日志，根据配置设置 level、是否输出到文件。
+/// 初始化日志,根据配置设置 level、是否输出到文件.
 pub fn init_logging(config: &LoggingConfig) -> Result<(), io::Error> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&config.level));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.level));
 
     let base_fmt = fmt::layer()
         .with_target(true)

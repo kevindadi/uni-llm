@@ -1,4 +1,4 @@
-//! Google Gemini REST API 实现。
+//! Google Gemini REST API 实现.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use crate::config::ProviderConfig;
 use crate::error::LlmError;
 use crate::types::{ChatRequest, ChatResponse, Role, StreamChunk};
 
-/// Google Gemini Provider。
+/// Google Gemini Provider.
 pub struct GeminiProvider {
     name: String,
     base_url: String,
@@ -20,7 +20,7 @@ pub struct GeminiProvider {
 }
 
 impl GeminiProvider {
-    /// 创建 Gemini Provider。
+    /// 创建 Gemini Provider.
     pub fn new(config: &ProviderConfig) -> Result<Self, LlmError> {
         let api_key = config
             .api_key_env
@@ -194,7 +194,7 @@ impl LlmProvider for GeminiProvider {
 
         Ok(ChatResponse {
             content,
-            tool_calls: None, // Gemini tool calling 格式不同，简化处理
+            tool_calls: None, // Gemini tool calling 格式不同,简化处理
             usage,
             model: model.to_string(),
             provider: self.name.clone(),

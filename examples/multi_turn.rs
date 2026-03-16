@@ -1,4 +1,4 @@
-//! 多轮对话示例。
+//! 多轮对话示例.
 
 use uni_llm::{Message, UniLlmClient};
 
@@ -7,7 +7,7 @@ async fn main() -> anyhow::Result<()> {
     let client = UniLlmClient::from_config("uni-llm.toml").await?;
 
     let mut messages = vec![
-        Message::system("你是一个并发系统设计专家。"),
+        Message::system("你是一个并发系统设计专家."),
         Message::user("什么是死锁？"),
     ];
 

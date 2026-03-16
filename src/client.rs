@@ -1,4 +1,4 @@
-//! UniLlmClient 统一客户端实现。
+//! UniLlmClient 统一客户端实现.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,7 +10,7 @@ use crate::error::LlmError;
 use crate::providers::{create_provider, LlmProvider};
 use crate::types::{ChatRequest, ChatResponse, Message, StreamChunk, ToolDefinition};
 
-/// 统一 LLM 客户端。
+/// 统一 LLM 客户端.
 pub struct UniLlmClient {
     config: Arc<Config>,
     provider_override: Option<String>,
@@ -21,7 +21,7 @@ pub struct UniLlmClient {
 }
 
 impl UniLlmClient {
-    /// 从配置文件加载客户端。
+    /// 从配置文件加载客户端.
     pub async fn from_config(path: impl AsRef<std::path::Path>) -> Result<Self, LlmError> {
         let config = Config::from_file(path).await?;
         Ok(Self {
@@ -34,12 +34,12 @@ impl UniLlmClient {
         })
     }
 
-    /// 创建 builder。
+    /// 创建 builder.
     pub fn builder() -> UniLlmClientBuilder {
         UniLlmClientBuilder::default()
     }
 
-    /// 临时切换 provider。
+    /// 临时切换 provider.
     pub fn with_provider(&self, provider: &str) -> Self {
         Self {
             config: Arc::clone(&self.config),
@@ -51,7 +51,7 @@ impl UniLlmClient {
         }
     }
 
-    /// 临时切换模型。
+    /// 临时切换模型.
     pub fn with_model(&self, model: &str) -> Self {
         Self {
             config: Arc::clone(&self.config),
@@ -161,13 +161,13 @@ impl UniLlmClient {
         }))
     }
 
-    /// 普通 chat 调用。
+    /// 普通 chat 调用.
     pub async fn chat(&self, messages: Vec<Message>) -> Result<ChatResponse, LlmError> {
         let request = self.build_request(messages, None, false);
         self.chat_with_fallback(&request).await
     }
 
-    /// 带 tool 的 chat 调用。
+    /// 带 tool 的 chat 调用.
     pub async fn chat_with_tools(
         &self,
         messages: Vec<Message>,
@@ -177,7 +177,7 @@ impl UniLlmClient {
         self.chat_with_fallback(&request).await
     }
 
-    /// JSON 结构化输出。
+    /// JSON 结构化输出.
     pub async fn chat_json<T: serde::de::DeserializeOwned>(
         &self,
         messages: Vec<Message>,
@@ -186,7 +186,7 @@ impl UniLlmClient {
 
         let provider = create_provider(&self.config, self.provider_name())?;
         if !provider.supports_json_mode() {
-            let json_prompt = "你必须只输出合法 JSON，不要输出任何其他文字。输出格式：\n{...}";
+            let json_prompt = "你必须只输出合法 JSON,不要输出任何其他文字.输出格式:\n{...}";
             if let Some(first) = request.messages.first_mut() {
                 if matches!(first.role, crate::types::Role::System) {
                     first.content = format!("{}\n\n{}", json_prompt, first.content);
@@ -264,7 +264,7 @@ impl UniLlmClient {
     }
 }
 
-/// 客户端构建器。
+/// 客户端构建器.
 #[derive(Default)]
 pub struct UniLlmClientBuilder {
     config: Option<Config>,
@@ -352,7 +352,7 @@ models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
         })
     }
 
-    /// 从已有 config 构建，允许覆盖。
+    /// 从已有 config 构建,允许覆盖.
     pub fn from_config(mut self, config: Config) -> Self {
         self.config = Some(config);
         self

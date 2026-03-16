@@ -1,10 +1,10 @@
-//! 错误类型定义。
+//! 错误类型定义.
 
 use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
 
-/// LLM 调用相关错误。
+/// LLM 调用相关错误.
 #[derive(Error, Debug)]
 pub enum LlmError {
     // —— 网络层 ——
@@ -103,7 +103,7 @@ pub enum LlmError {
 }
 
 impl LlmError {
-    /// 是否为可重试错误。
+    /// 是否为可重试错误.
     pub fn is_retriable(&self) -> bool {
         matches!(
             self,
